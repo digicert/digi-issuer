@@ -67,7 +67,7 @@ func main() {
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8084", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -147,6 +147,10 @@ func main() {
 		ClusterResourceNamespace: clusterResourceNamespace,
 	}
 
+	ctx := ctrl.SetupSignalHandler()
+
+	eventRecorder := mgr.GetEventRecorder("digicert-issuer")
+
 	if err := (&controllers.CombinedController{
 		IssuerTypes:        []issuerv1alpha1.Issuer{&apiv1alpha1.DigiCertIssuer{}},
 		ClusterIssuerTypes: []issuerv1alpha1.Issuer{&apiv1alpha1.DigiCertClusterIssuer{}},
@@ -154,7 +158,8 @@ func main() {
 		MaxRetryDuration:   5 * time.Minute,
 		Check:              s.Check,
 		Sign:               s.Sign,
-	}).SetupWithManager(ctrl.SetupSignalHandler(), mgr); err != nil {
+		EventRecorder:      eventRecorder,
+	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "Failed to set up CombinedController")
 		os.Exit(1)
 	}
@@ -172,7 +177,7 @@ func main() {
 
 	setupLog.Info("Starting manager",
 		"cluster-resource-namespace", clusterResourceNamespace)
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}

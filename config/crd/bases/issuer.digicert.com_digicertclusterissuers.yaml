@@ -57,6 +57,11 @@ spec:
             description: IssuerSpec defines the desired state of DigiCertIssuer and
               DigiCertClusterIssuer.
             properties:
+              accountID:
+                description: |-
+                  AccountID is the optional UUID of the account associated with this
+                  issuer in the certificate-authority service.
+                type: string
               authMode:
                 default: standalone
                 description: |-

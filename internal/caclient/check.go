@@ -22,17 +22,11 @@ import (
 )
 
 // CheckIssuer verifies that the certificate-authority service is reachable and
-// that the configured credentials are valid by fetching the CA with the given
-// issuerID. Returns a non-nil error if the CA cannot be reached, the
-// credentials are rejected, or the CA ID is not found.
+// healthy. Returns a non-nil error if the health endpoint cannot be reached or
+// returns a non-2xx response.
 func (c *Client) CheckIssuer(ctx context.Context, issuerID string) error {
-	if issuerID == "" {
-		return fmt.Errorf("issuerID must not be empty")
-	}
-
-	var resp caResponse
-	if err := c.do(ctx, "GET", "/certificate-authority/api/v1/ca/"+issuerID, nil, &resp); err != nil {
-		return fmt.Errorf("check issuer %q: %w", issuerID, err)
+	if err := c.do(ctx, "GET", "/api/v1/health", nil, nil); err != nil {
+		return fmt.Errorf("health check: %w", err)
 	}
 
 	return nil

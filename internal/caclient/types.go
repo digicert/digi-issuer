@@ -21,14 +21,46 @@ type certIssuer struct {
 	ID string `json:"id"`
 }
 
-// certificateRequest is the JSON body sent to POST /certificate-authority/api/v1/certificate.
+// certSubject holds the X.509 subject fields extracted from the CSR.
+type certSubject struct {
+	CommonName       string   `json:"common_name,omitempty"`
+	OrganizationName string   `json:"organization_name,omitempty"`
+	OrganizationUnit []string `json:"organization_unit,omitempty"`
+	Locality         string   `json:"locality,omitempty"`
+	State            string   `json:"state,omitempty"`
+	Country          string   `json:"country,omitempty"`
+	StreetAddress    []string `json:"street_address,omitempty"`
+	PostalCode       string   `json:"postal_code,omitempty"`
+}
+
+// certSAN holds Subject Alternative Name values extracted from the CSR.
+type certSAN struct {
+	DNSNames    []string `json:"dns_names,omitempty"`
+	IPAddresses []string `json:"ip_addresses,omitempty"`
+}
+
+// certExtensions holds certificate extensions derived from the CSR.
+type certExtensions struct {
+	SAN *certSAN `json:"san,omitempty"`
+}
+
+// certificateRequest is the JSON body sent to POST /api/v1/certificate.
 type certificateRequest struct {
-	// CSR is the PEM-encoded certificate signing request.
-	CSR string `json:"csr"`
-	// Issuer identifies the CA within the certificate-authority service.
-	Issuer certIssuer `json:"issuer"`
 	// TemplateID is an optional certificate template UUID.
 	TemplateID string `json:"template_id,omitempty"`
+	// Issuer identifies the CA within the certificate-authority service.
+	Issuer certIssuer `json:"issuer"`
+	// AccountID is the optional account UUID associated with the request.
+	AccountID string `json:"account_id,omitempty"`
+	// CSR is the PEM-encoded PKCS#10 certificate signing request.
+	CSR string `json:"csr"`
+	// CSRType indicates the format of the CSR field: "csr" for a full PKCS#10
+	// CSR, or "spki" for a raw SubjectPublicKeyInfo.
+	CSRType string `json:"csr_type"`
+	// Subject contains the X.509 subject fields for the certificate.
+	Subject *certSubject `json:"subject,omitempty"`
+	// Extensions contains SANs and other extensions derived from the CSR.
+	Extensions *certExtensions `json:"extensions,omitempty"`
 }
 
 // chainCertificate represents a single certificate in the chain returned by the CA.
@@ -38,9 +70,9 @@ type chainCertificate struct {
 	Blob     string `json:"blob,omitempty"`
 }
 
-// certificateResponse is the JSON body returned by POST /certificate-authority/api/v1/certificate.
+// certificateResponse is the JSON body returned by POST /api/v1/certificate.
 type certificateResponse struct {
-	// ID is the UUID assigned to the issued certificate.
+	// ID is the UUID assigned to the issued certificate by the CA.
 	ID string `json:"id,omitempty"`
 	// Blob is the base64-encoded DER-encoded leaf certificate.
 	Blob []byte `json:"blob,omitempty"`
@@ -48,14 +80,6 @@ type certificateResponse struct {
 	SerialNumber string `json:"serial_number,omitempty"`
 	// Chain contains the issuing chain certificates (excluding the leaf).
 	Chain []chainCertificate `json:"chain,omitempty"`
-}
-
-// caResponse is the JSON body returned by GET /certificate-authority/api/v1/ca/{id}.
-// Only the fields needed for health checking are included.
-type caResponse struct {
-	ID     string `json:"id,omitempty"`
-	Name   string `json:"name,omitempty"`
-	Status string `json:"status,omitempty"`
 }
 
 // apiError represents an error response from the certificate-authority service.

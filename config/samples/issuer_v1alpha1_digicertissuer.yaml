@@ -1,9 +1,12 @@
-apiVersion: issuer.issuer.digicert.com/v1alpha1
+apiVersion: issuer.digicert.com/v1alpha1
 kind: DigiCertIssuer
 metadata:
-  labels:
-    app.kubernetes.io/name: digicert-issuer
-    app.kubernetes.io/managed-by: kustomize
   name: digicertissuer-sample
+  namespace: default
 spec:
-  # TODO(user): Add fields here
+  url: https://certificate-authority.cert-manager.svc.cluster.local
+  authSecretName: digicert-issuer-credentials
+  authMode: standalone
+  issuerID: "00000000-0000-0000-0000-000000000000"
+  # templateID: "00000000-0000-0000-0000-000000000000"  # optional
+  # caBundleSecretName: digicert-ca-bundle               # optional

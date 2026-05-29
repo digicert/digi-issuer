@@ -1,0 +1,14 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: digicert-test-cert
+  namespace: default
+spec:
+  secretName: digicert-test-cert-tls
+  commonName: test.example.com
+  dnsNames:
+    - test.example.com
+  issuerRef:
+    group: issuer.digicert.com
+    kind: DigiCertClusterIssuer
+    name: digicertclusterissuer-sample

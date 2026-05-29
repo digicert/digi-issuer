@@ -50,6 +50,11 @@ type IssuerSpec struct {
 	// +kubebuilder:validation:Required
 	IssuerID string `json:"issuerID"`
 
+	// AccountID is the optional UUID of the account associated with this
+	// issuer in the certificate-authority service.
+	// +optional
+	AccountID string `json:"accountID,omitempty"`
+
 	// TemplateID is the optional UUID of a certificate template to apply when
 	// issuing certificates. If omitted, no template is specified in the request.
 	// +optional

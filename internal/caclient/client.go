@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -41,22 +42,32 @@ type Client struct {
 // New creates a new Client targeting the given base URL and using the provided
 // AuthProvider for request authentication.
 //
-// TLS verification is currently skipped (InsecureSkipVerify: true) for
-// in-cluster communication. Pass a non-nil caBundlePEM to pin a specific CA
-// bundle in a future iteration.
-func New(baseURL string, auth AuthProvider) *Client {
+// When caBundlePEM is nil or empty, TLS verification is skipped
+// (InsecureSkipVerify: true) for in-cluster communication without a bundle.
+// When caBundlePEM is set, a custom cert pool is built from the PEM data and
+// used as the RootCAs for TLS verification.
+func New(baseURL string, auth AuthProvider, caBundlePEM []byte) (*Client, error) {
+	tlsCfg := &tls.Config{}
+	if len(caBundlePEM) == 0 {
+		tlsCfg.InsecureSkipVerify = true //nolint:gosec // intentional for in-cluster use without a CA bundle
+	} else {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caBundlePEM) {
+			return nil, fmt.Errorf("failed to parse any certificates from CA bundle PEM")
+		}
+		tlsCfg.RootCAs = pool
+	}
+
 	return &Client{
 		baseURL: baseURL,
 		auth:    auth,
 		httpClient: &http.Client{
 			Timeout: defaultTimeout,
 			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true, //nolint:gosec // intentional for in-cluster use; see CABundleSecretName TODO
-				},
+				TLSClientConfig: tlsCfg,
 			},
 		},
-	}
+	}, nil
 }
 
 // do performs an HTTP request against the CA service, injecting auth headers

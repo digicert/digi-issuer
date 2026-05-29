@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	issuerv1alpha1 "github.com/cert-manager/issuer-lib/api/v1alpha1"
 	"github.com/cert-manager/issuer-lib/controllers/signer"
 	corev1 "k8s.io/api/core/v1"
@@ -29,6 +30,21 @@ import (
 	apiv1alpha1 "digicert-issuer/api/v1alpha1"
 	"digicert-issuer/internal/caclient"
 )
+
+const (
+	// AnnotationCertificateID is set on a CertificateRequest after signing to
+	// record the UUID assigned by the DigiCert certificate-authority service.
+	AnnotationCertificateID = "issuer.digicert.com/certificate-id"
+)
+
+// +kubebuilder:rbac:groups=issuer.digicert.com,resources=digicertissuers,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=issuer.digicert.com,resources=digicertissuers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=issuer.digicert.com,resources=digicertclusterissuers,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=issuer.digicert.com,resources=digicertclusterissuers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=cert-manager.io,resources=certificaterequests,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=cert-manager.io,resources=certificaterequests/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // DigiCertSigner implements the issuer-lib Check and Sign functions.
 // It connects to the DigiCert certificate-authority service to validate
@@ -50,12 +66,11 @@ func (s *DigiCertSigner) Check(ctx context.Context, issuerObj issuerv1alpha1.Iss
 	}
 
 	secretNamespace := s.secretNamespace(issuerObj)
-	auth, err := s.buildAuthProvider(ctx, spec, secretNamespace)
+	ca, err := s.buildClient(ctx, spec, secretNamespace)
 	if err != nil {
 		return err
 	}
 
-	ca := caclient.New(spec.URL, auth)
 	return ca.CheckIssuer(ctx, spec.IssuerID)
 }
 
@@ -73,20 +88,37 @@ func (s *DigiCertSigner) Sign(
 	}
 
 	secretNamespace := s.secretNamespace(issuerObj)
-	auth, err := s.buildAuthProvider(ctx, spec, secretNamespace)
+	ca, err := s.buildClient(ctx, spec, secretNamespace)
 	if err != nil {
 		return signer.PEMBundle{}, err
 	}
-
-	ca := caclient.New(spec.URL, auth)
 
 	details, err := cr.GetCertificateDetails()
 	if err != nil {
 		return signer.PEMBundle{}, fmt.Errorf("get certificate details: %w", err)
 	}
-	leafPEM, chainPEM, err := ca.IssueCertificate(ctx, details.CSR, spec.IssuerID, spec.TemplateID)
+	leafPEM, chainPEM, certID, err := ca.IssueCertificate(ctx, details.CSR, spec.IssuerID, spec.AccountID, spec.TemplateID)
 	if err != nil {
 		return signer.PEMBundle{}, fmt.Errorf("sign certificate: %w", err)
+	}
+
+	// Annotate the CertificateRequest with the CA-assigned certificate ID.
+	if certID != "" {
+		crObj := &cmapi.CertificateRequest{}
+		if err := s.Client.Get(ctx, types.NamespacedName{
+			Namespace: cr.GetNamespace(),
+			Name:      cr.GetName(),
+		}, crObj); err == nil {
+			patch := client.MergeFrom(crObj.DeepCopy())
+			if crObj.Annotations == nil {
+				crObj.Annotations = make(map[string]string)
+			}
+			crObj.Annotations[AnnotationCertificateID] = certID
+			if patchErr := s.Client.Patch(ctx, crObj, patch); patchErr != nil {
+				// Non-fatal: the cert was issued successfully; log and continue.
+				_ = fmt.Errorf("patch certificate-id annotation: %w", patchErr)
+			}
+		}
 	}
 
 	return signer.PEMBundle{
@@ -118,6 +150,36 @@ func (s *DigiCertSigner) secretNamespace(issuerObj issuerv1alpha1.Issuer) string
 	default:
 		return s.ClusterResourceNamespace
 	}
+}
+
+// buildClient constructs a caclient.Client by resolving the auth secret and,
+// optionally, the CA bundle secret from the IssuerSpec.
+func (s *DigiCertSigner) buildClient(
+	ctx context.Context,
+	spec *apiv1alpha1.IssuerSpec,
+	namespace string,
+) (*caclient.Client, error) {
+	auth, err := s.buildAuthProvider(ctx, spec, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	var caBundlePEM []byte
+	if spec.CABundleSecretName != "" {
+		secret := &corev1.Secret{}
+		if err := s.Client.Get(ctx, types.NamespacedName{
+			Namespace: namespace,
+			Name:      spec.CABundleSecretName,
+		}, secret); err != nil {
+			return nil, fmt.Errorf("get CA bundle secret %q in namespace %q: %w", spec.CABundleSecretName, namespace, err)
+		}
+		caBundlePEM = secret.Data["ca.crt"]
+		if len(caBundlePEM) == 0 {
+			return nil, fmt.Errorf("CA bundle secret %q missing key \"ca.crt\"", spec.CABundleSecretName)
+		}
+	}
+
+	return caclient.New(spec.URL, auth, caBundlePEM)
 }
 
 // buildAuthProvider reads the auth Secret and returns the appropriate

@@ -1,9 +1,12 @@
-apiVersion: issuer.issuer.digicert.com/v1alpha1
+apiVersion: issuer.digicert.com/v1alpha1
 kind: DigiCertClusterIssuer
 metadata:
-  labels:
-    app.kubernetes.io/name: digicert-issuer
-    app.kubernetes.io/managed-by: kustomize
   name: digicertclusterissuer-sample
 spec:
-  # TODO(user): Add fields here
+  url: https://dcone.cluster.local/certificate-authority
+  authSecretName: digicert-issuer-credentials
+  authMode: standalone
+  issuerID: "DDCA90D5FF6BF9889773C9F4CF08C270"
+  accountID: "447295bc-8a7a-41ec-9111-4f0c6f0ce4fc"
+  templateID: "0196198F96545084143B237D9E39FC90"
+  # caBundleSecretName: digicert-ca-bundle               # optional
