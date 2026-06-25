@@ -64,7 +64,8 @@ spec:
           - --leader-elect
           - --health-probe-bind-address=:8081
           - --cluster-resource-namespace=cert-manager
-        image: controller:latest
+        image: digicert-issuer:latest
+        imagePullPolicy: IfNotPresent
         name: manager
         ports:
         - containerPort: 8081

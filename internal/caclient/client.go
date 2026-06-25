@@ -14,6 +14,29 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package caclient provides a thin HTTP client for the DigiCert
+// certificate-authority (CA) service.
+//
+// Architecture overview:
+//
+//	┌─────────────────────────────────────────┐
+//	│              caclient.Client            │
+//	│                                         │
+//	│  New(url, AuthProvider, caBundlePEM)    │  ← constructor
+//	│  ├─ CheckIssuer(ctx, issuerID)          │  ← health check (check.go)
+//	│  └─ IssueCertificate(ctx, csr, ...)     │  ← sign cert   (sign.go)
+//	│                                         │
+//	│  do(ctx, method, path, body, out)       │  ← central HTTP dispatcher
+//	└─────────────────────────────────────────┘
+//	         ▲
+//	         │ injected at construction time
+//	┌────────┴────────┐
+//	│  AuthProvider   │  (auth.go)
+//	│  ├─ StandaloneAuth  → x-api-key header
+//	│  └─ BearerAuth     → Authorization: Bearer
+//	└─────────────────┘
+//
+// All types used in request/response JSON bodies are defined in types.go.
 package caclient
 
 import (

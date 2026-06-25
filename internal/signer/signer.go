@@ -14,6 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package signer implements the Check and Sign functions required by
+// cert-manager/issuer-lib's CombinedController.
+//
+// How cert-manager external issuers work (simplified):
+//
+//  1. A user creates a DigiCertIssuer or DigiCertClusterIssuer resource.
+//  2. issuer-lib calls Check() to verify the issuer is reachable and healthy.
+//     The issuer's Ready condition is updated based on the result.
+//  3. When a user creates a cert-manager CertificateRequest that references this
+//     issuer, issuer-lib calls Sign() to obtain the signed certificate.
+//  4. Sign() calls the DigiCert CA service and writes the resulting PEMBundle
+//     back to the CertificateRequest status so cert-manager can deliver it.
+//
+// This package has no reconcile loop of its own; all watch/retry/status-update
+// logic is handled by issuer-lib's CombinedController (wired in cmd/main.go).
 package signer
 
 import (
@@ -102,7 +117,11 @@ func (s *DigiCertSigner) Sign(
 		return signer.PEMBundle{}, fmt.Errorf("sign certificate: %w", err)
 	}
 
-	// Annotate the CertificateRequest with the CA-assigned certificate ID.
+	// Annotate the CertificateRequest with the CA-assigned certificate ID so
+	// operators can correlate the Kubernetes object with the certificate record
+	// in the DigiCert CA service.
+	// This is best-effort: the certificate was already issued successfully, so
+	// a failure here is logged but does not fail the Sign operation.
 	if certID != "" {
 		crObj := &cmapi.CertificateRequest{}
 		if err := s.Client.Get(ctx, types.NamespacedName{

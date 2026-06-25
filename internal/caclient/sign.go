@@ -75,12 +75,18 @@ func (c *Client) IssueCertificate(
 		return nil, nil, "", fmt.Errorf("issue certificate: response contained empty blob")
 	}
 
+	// The CA returns the leaf cert as raw DER bytes in the Blob field.
+	// pem.EncodeToMemory wraps it in a "-----BEGIN CERTIFICATE-----" PEM block.
 	leafPEM = pem.EncodeToMemory(&pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: resp.Blob,
 	})
 
 	// Assemble the full chain: leaf first, then any CA chain certificates.
+	// Chain certs are returned as base64-encoded DER strings (not raw bytes),
+	// so each one must be base64-decoded before PEM encoding.
+	// The final chainPEM is a concatenated PEM bundle cert-manager uses as
+	// the CertificateRequest's ca.crt / chain.
 	chainPEM = append(chainPEM, leafPEM...)
 	for _, chainCert := range resp.Chain {
 		if chainCert.Blob == "" {

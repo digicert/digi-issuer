@@ -24,6 +24,9 @@ import (
 // CheckIssuer verifies that the certificate-authority service is reachable and
 // healthy. Returns a non-nil error if the health endpoint cannot be reached or
 // returns a non-2xx response.
+//
+// issuerID is accepted for interface compatibility but is not currently sent
+// to the health endpoint — the health check is service-wide, not per-CA.
 func (c *Client) CheckIssuer(ctx context.Context, issuerID string) error {
 	if err := c.do(ctx, "GET", "/api/v1/health", nil, nil); err != nil {
 		return fmt.Errorf("health check: %w", err)
