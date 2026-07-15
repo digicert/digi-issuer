@@ -6,7 +6,7 @@ metadata:
 spec:
   url: https://certificate-authority.cert-manager.svc.cluster.local
   authSecretName: digicert-issuer-credentials
-  authMode: standalone
+  authMode: apiKey
   issuerID: "00000000-0000-0000-0000-000000000000"
   # templateID: "00000000-0000-0000-0000-000000000000"  # optional
   # caBundleSecretName: digicert-ca-bundle               # optional

@@ -32,7 +32,7 @@ limitations under the License.
 //	         │ injected at construction time
 //	┌────────┴────────┐
 //	│  AuthProvider   │  (auth.go)
-//	│  ├─ StandaloneAuth  → x-api-key header
+//	│  ├─ APIKeyAuth      → x-api-key header
 //	│  └─ BearerAuth     → Authorization: Bearer
 //	└─────────────────┘
 //
@@ -49,10 +49,13 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
-	defaultTimeout = 20 * time.Second
+	defaultTimeout      = 20 * time.Second
+	transactionIDHeader = "X-DC-TransactionId"
 )
 
 // Client is an HTTP client for the DigiCert certificate-authority service.
@@ -97,6 +100,18 @@ func New(baseURL string, auth AuthProvider, caBundlePEM []byte) (*Client, error)
 // and decoding the JSON response body into out (if non-nil).
 // Returns an error for non-2xx status codes.
 func (c *Client) do(ctx context.Context, method, path string, body interface{}, out interface{}) error {
+	return c.doWithHeaders(ctx, method, path, body, nil, out)
+}
+
+// doWithHeaders performs an HTTP request with optional endpoint-specific
+// headers in addition to the shared authentication headers.
+func (c *Client) doWithHeaders(
+	ctx context.Context,
+	method, path string,
+	body interface{},
+	headers map[string]string,
+	out interface{},
+) error {
 	var bodyReader io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -119,6 +134,12 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 		return fmt.Errorf("build auth header: %w", err)
 	}
 	req.Header.Set(headerName, headerValue)
+	for name, value := range headers {
+		req.Header.Set(name, value)
+	}
+	// Every outbound request gets its own correlation ID for tracing across
+	// Ambassador, certificate-authority, and downstream services.
+	req.Header.Set(transactionIDHeader, uuid.NewString())
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

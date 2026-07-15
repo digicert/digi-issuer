@@ -31,17 +31,17 @@ type IssuerSpec struct {
 
 	// AuthSecretName is the name of a Kubernetes Secret containing credentials
 	// for authenticating to the certificate-authority service.
-	// For standalone mode (default), the Secret must contain the key "api-key".
+	// For apiKey mode (default), the Secret must contain the key "api-key".
 	// For bearer mode, the Secret must contain the key "token".
 	// +kubebuilder:validation:Required
 	AuthSecretName string `json:"authSecretName"`
 
 	// AuthMode controls which authentication method is used when calling the
 	// certificate-authority service.
-	// "standalone" uses the x-api-key header (default).
+	// "apiKey" uses the x-api-key header (default).
 	// "bearer" uses an Authorization: Bearer token header.
-	// +kubebuilder:validation:Enum=standalone;bearer
-	// +kubebuilder:default=standalone
+	// +kubebuilder:validation:Enum=apiKey;bearer
+	// +kubebuilder:default=apiKey
 	// +optional
 	AuthMode string `json:"authMode,omitempty"`
 

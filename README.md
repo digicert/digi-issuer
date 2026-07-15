@@ -47,6 +47,33 @@ kubectl apply -k config/samples/
 
 >**NOTE**: Ensure that the samples has default values to test it out.
 
+### E2E Matrix Against the Active Kubeconfig
+
+`make test-e2e-kubeconfig` validates a deployed controller against the current
+`kubectl` context. It does not create a Kind cluster, rebuild the controller,
+or modify the configured `DigiCertClusterIssuer`. The matrix creates a
+temporary `digicert-issuer-e2e-*` namespace, then removes it on completion.
+
+The target requires cert-manager, the DigiCert issuer CRDs, a ready
+`DigiCertClusterIssuer`, and its credentials Secret to already be deployed.
+It verifies ClusterIssuer issuance, namespaced DigiCertIssuer issuance,
+reissuance after TLS Secret removal, invalid credential handling, and
+credential rotation without a controller restart.
+
+```sh
+make test-e2e-kubeconfig
+```
+
+Override the defaults for a nonstandard deployment:
+
+```sh
+E2E_CLUSTER_ISSUER=my-cluster-issuer \
+E2E_CREDENTIALS_SECRET=my-credentials \
+E2E_CREDENTIALS_NAMESPACE=my-credentials-namespace \
+E2E_MANAGER_NAMESPACE=digicert-issuer-system \
+make test-e2e-kubeconfig
+```
+
 ### To Uninstall
 **Delete the instances (CRs) from the cluster:**
 

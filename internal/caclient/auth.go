@@ -25,16 +25,16 @@ type AuthProvider interface {
 	Header() (name, value string, err error)
 }
 
-// StandaloneAuth implements AuthProvider using a static API key.
-// It sets the "x-api-key" header required by the CA's standalone mode.
-type StandaloneAuth struct {
+// APIKeyAuth implements AuthProvider using a static API key.
+// It sets the "x-api-key" header required by the CA's apiKey mode.
+type APIKeyAuth struct {
 	APIKey string
 }
 
-// Header returns the x-api-key header for standalone authentication.
-func (a *StandaloneAuth) Header() (string, string, error) {
+// Header returns the x-api-key header for apiKey authentication.
+func (a *APIKeyAuth) Header() (string, string, error) {
 	if a.APIKey == "" {
-		return "", "", fmt.Errorf("standalone auth: api key is empty")
+		return "", "", fmt.Errorf("apiKey auth: api key is empty")
 	}
 	return "x-api-key", a.APIKey, nil
 }

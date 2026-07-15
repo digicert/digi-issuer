@@ -18,6 +18,10 @@ resources:
 - metrics_auth_role.yaml
 - metrics_auth_role_binding.yaml
 - metrics_reader_role.yaml
+# Grants cert-manager's built-in approver controller permission to
+# auto-approve CertificateRequests referencing our external issuer types.
+# See approve_digicertissuer_role.yaml for details.
+- approve_digicertissuer_role.yaml
 # For each CRD, "Admin", "Editor" and "Viewer" roles are scaffolded by
 # default, aiding admins in cluster management. Those roles are
 # not used by the digicert-issuer itself. You can comment the following lines

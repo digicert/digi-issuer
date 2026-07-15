@@ -63,21 +63,21 @@ spec:
                   issuer in the certificate-authority service.
                 type: string
               authMode:
-                default: standalone
+                default: apiKey
                 description: |-
                   AuthMode controls which authentication method is used when calling the
                   certificate-authority service.
-                  "standalone" uses the x-api-key header (default).
+                  "apiKey" uses the x-api-key header (default).
                   "bearer" uses an Authorization: Bearer token header.
                 enum:
-                - standalone
+                - apiKey
                 - bearer
                 type: string
               authSecretName:
                 description: |-
                   AuthSecretName is the name of a Kubernetes Secret containing credentials
                   for authenticating to the certificate-authority service.
-                  For standalone mode (default), the Secret must contain the key "api-key".
+                  For apiKey mode (default), the Secret must contain the key "api-key".
                   For bearer mode, the Secret must contain the key "token".
                 type: string
               caBundleSecretName:

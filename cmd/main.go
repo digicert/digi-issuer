@@ -59,6 +59,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	issuerv1alpha1 "github.com/cert-manager/issuer-lib/api/v1alpha1"
 	"github.com/cert-manager/issuer-lib/controllers"
 
@@ -86,6 +87,15 @@ func init() {
 	// Register all core Kubernetes types (Pod, Deployment, Secret, etc.)
 	// so the controller can read Secrets for auth credentials.
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+
+	// Register cert-manager API types (CertificateRequest, etc.) required by
+	// issuer-lib controllers.
+	utilruntime.Must(cmapi.AddToScheme(scheme))
+
+	// Note: issuer-lib's v1alpha1 package (issuerv1alpha1) only exposes shared
+	// Go interfaces/types (Issuer, IssuerStatus) — it has no CRD types or
+	// AddToScheme of its own to register. IssuerStatus is embedded directly in
+	// our own DigiCertIssuer/DigiCertClusterIssuer types below.
 
 	// Register our own CRD types: DigiCertIssuer and DigiCertClusterIssuer.
 	// Defined in api/v1alpha1/; without this the manager would not recognise them.
@@ -251,6 +261,7 @@ func main() {
 	// stateless beyond these two fields.
 	s := &signer.DigiCertSigner{
 		Client:                   mgr.GetClient(),
+		APIReader:                mgr.GetAPIReader(),
 		ClusterResourceNamespace: clusterResourceNamespace,
 	}
 
@@ -288,14 +299,22 @@ func main() {
 	//   Check              — our CA health check function (signer.go)
 	//   Sign               — our certificate signing function (signer.go)
 	//   EventRecorder      — writes events to issuer and request objects
+	//
+	// DisableKubernetesCSRController is set because this issuer only supports
+	// cert-manager CertificateRequest objects, not native Kubernetes
+	// CertificateSigningRequest resources. Leaving the CSR controller enabled
+	// (the issuer-lib default) makes the manager watch/list
+	// certificates.k8s.io CertificateSigningRequests, which this project does
+	// not grant RBAC for, causing repeated "Failed to watch" cache errors.
 	if err := (&controllers.CombinedController{
-		IssuerTypes:        []issuerv1alpha1.Issuer{&apiv1alpha1.DigiCertIssuer{}},
-		ClusterIssuerTypes: []issuerv1alpha1.Issuer{&apiv1alpha1.DigiCertClusterIssuer{}},
-		FieldOwner:         "digicert-issuer",
-		MaxRetryDuration:   5 * time.Minute,
-		Check:              s.Check,
-		Sign:               s.Sign,
-		EventRecorder:      eventRecorder,
+		IssuerTypes:                    []issuerv1alpha1.Issuer{&apiv1alpha1.DigiCertIssuer{}},
+		ClusterIssuerTypes:             []issuerv1alpha1.Issuer{&apiv1alpha1.DigiCertClusterIssuer{}},
+		FieldOwner:                     "digicert-issuer",
+		MaxRetryDuration:               5 * time.Minute,
+		Check:                          s.Check,
+		Sign:                           s.Sign,
+		EventRecorder:                  eventRecorder,
+		DisableKubernetesCSRController: true,
 	}).SetupWithManager(ctx, mgr); err != nil {
 		setupLog.Error(err, "Failed to set up CombinedController")
 		os.Exit(1)

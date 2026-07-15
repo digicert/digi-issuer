@@ -175,6 +175,18 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
 
+.PHONY: test-cert
+test-cert: ## Reissue the sample Certificate and wait for it to become Ready.
+	$(KUBECTL) delete certificate digicert-test-cert -n default --ignore-not-found
+	$(KUBECTL) delete secret digicert-test-cert-tls -n default --ignore-not-found
+	$(KUBECTL) apply -f config/samples/test_certificate.yaml
+	$(KUBECTL) wait --for=condition=Ready certificate/digicert-test-cert -n default --timeout=2m
+	$(KUBECTL) get certificate digicert-test-cert -n default
+
+.PHONY: test-e2e-kubeconfig
+test-e2e-kubeconfig: ## Run the certificate issuance matrix against the active kubeconfig context.
+	KUBECTL="$(KUBECTL)" bash ./test/e2e-kubeconfig/run.sh
+
 ##@ Dependencies
 
 ## Location to install dependencies to

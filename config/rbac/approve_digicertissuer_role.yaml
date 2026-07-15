@@ -1,0 +1,41 @@
+# Grants cert-manager's built-in CertificateRequest approver controller
+# permission to auto-approve CertificateRequests that reference our external
+# issuer types (DigiCertIssuer / DigiCertClusterIssuer).
+#
+# Without this, cert-manager's approver controller only knows how to
+# auto-approve requests for its own built-in issuer types (ca, vault, acme,
+# venafi). Requests referencing an external issuer.digicert.com issuer are
+# left permanently unapproved (empty Approved/Denied condition), so
+# issuer-lib's RequestController never signs them — even though the request
+# itself is otherwise valid.
+#
+# See: https://cert-manager.io/docs/policy/approval/
+# Reference pattern taken from cert-manager/issuer-lib's own example issuer:
+# https://github.com/cert-manager/issuer-lib/blob/main/make/config/cert-manager/approve.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cert-manager-controller-approve:issuer-digicert-com
+rules:
+- apiGroups:
+  - cert-manager.io
+  resources:
+  - signers
+  verbs:
+  - approve
+  resourceNames:
+  - digicertissuers.issuer.digicert.com/*
+  - digicertclusterissuers.issuer.digicert.com/*
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cert-manager-controller-approve:issuer-digicert-com
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cert-manager-controller-approve:issuer-digicert-com
+subjects:
+- kind: ServiceAccount
+  name: cert-manager
+  namespace: cert-manager

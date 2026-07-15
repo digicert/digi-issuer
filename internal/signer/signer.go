@@ -58,15 +58,18 @@ const (
 // +kubebuilder:rbac:groups=issuer.digicert.com,resources=digicertclusterissuers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificaterequests,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificaterequests/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // DigiCertSigner implements the issuer-lib Check and Sign functions.
 // It connects to the DigiCert certificate-authority service to validate
 // issuer readiness and sign CertificateRequests.
 type DigiCertSigner struct {
-	// Client is the controller-runtime client used to read Kubernetes Secrets.
+	// Client is the controller-runtime client used to update resources.
 	Client client.Client
+	// APIReader reads Secrets directly from the API server without creating
+	// informer watches.
+	APIReader client.Reader
 	// ClusterResourceNamespace is the namespace used to resolve Secrets for
 	// DigiCertClusterIssuer resources (default: "cert-manager").
 	ClusterResourceNamespace string
@@ -186,7 +189,7 @@ func (s *DigiCertSigner) buildClient(
 	var caBundlePEM []byte
 	if spec.CABundleSecretName != "" {
 		secret := &corev1.Secret{}
-		if err := s.Client.Get(ctx, types.NamespacedName{
+		if err := s.APIReader.Get(ctx, types.NamespacedName{
 			Namespace: namespace,
 			Name:      spec.CABundleSecretName,
 		}, secret); err != nil {
@@ -209,7 +212,7 @@ func (s *DigiCertSigner) buildAuthProvider(
 	namespace string,
 ) (caclient.AuthProvider, error) {
 	secret := &corev1.Secret{}
-	if err := s.Client.Get(ctx, types.NamespacedName{
+	if err := s.APIReader.Get(ctx, types.NamespacedName{
 		Namespace: namespace,
 		Name:      spec.AuthSecretName,
 	}, secret); err != nil {
@@ -224,11 +227,11 @@ func (s *DigiCertSigner) buildAuthProvider(
 		}
 		return &caclient.BearerAuth{Token: string(token)}, nil
 
-	default: // standalone
+	default: // apiKey
 		apiKey, ok := secret.Data["api-key"]
 		if !ok || len(apiKey) == 0 {
 			return nil, fmt.Errorf("auth secret %q missing key \"api-key\"", spec.AuthSecretName)
 		}
-		return &caclient.StandaloneAuth{APIKey: string(apiKey)}, nil
+		return &caclient.APIKeyAuth{APIKey: string(apiKey)}, nil
 	}
 }

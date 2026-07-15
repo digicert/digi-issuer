@@ -67,7 +67,13 @@ func (c *Client) IssueCertificate(
 	}
 
 	var resp certificateResponse
-	if err := c.do(ctx, "POST", "/api/v1/certificate", reqBody, &resp); err != nil {
+	headers := map[string]string{}
+	if accountID != "" {
+		// Hosted CA authorization resolves the active account from this header
+		// before parsing the request body.
+		headers["X-DC-AccountId"] = accountID
+	}
+	if err := c.doWithHeaders(ctx, "POST", "/api/v1/certificate", reqBody, headers, &resp); err != nil {
 		return nil, nil, "", fmt.Errorf("issue certificate: %w", err)
 	}
 
