@@ -1,6 +1,6 @@
 module digicert-issuer
 
-go 1.26.0
+go 1.26.5
 
 require (
 	github.com/cert-manager/cert-manager v1.20.2

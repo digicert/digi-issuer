@@ -211,7 +211,7 @@ This guide is for contributors building, changing, and validating the controller
 
 ### Developer Prerequisites
 
-- Go `1.26.0` or later.
+- Go `1.26.5` or later.
 - Docker, or another compatible tool selected with `CONTAINER_TOOL`, for image builds.
 - `kubectl` and Kind for local cluster and E2E work.
 - Access to a non-production DigiCert CA when running the live integration matrix. Do not use production credentials for ordinary development.
