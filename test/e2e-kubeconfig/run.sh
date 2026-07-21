@@ -34,7 +34,48 @@ wait_for_certificate() {
 
 certificate_serial() {
   "$kubectl_bin" get secret "$1" -n "$namespace" \
-    -o jsonpath='{.data.tls\.crt}' | base64 --decode | openssl x509 -noout -serial
+    -o jsonpath='{.data.tls\.crt}' | base64 --decode | openssl x509 -noout -serial |
+    sed 's/^[Ss]erial=//' | tr '[:upper:]' '[:lower:]'
+}
+
+assert_certificate_serial_annotation() {
+  local certificate_name="$1"
+  local secret_name="$2"
+  local certificate_serial_number
+  local annotated_serial
+
+	certificate_serial_number="$(certificate_serial "$secret_name")"
+  annotated_serial="$("$kubectl_bin" get certificate "$certificate_name" -n "$namespace" \
+    -o jsonpath='{.metadata.annotations.issuer\.digicert\.com/serial-number}' | tr '[:upper:]' '[:lower:]')"
+  if [[ -z "$annotated_serial" ]]; then
+    echo "Certificate ${certificate_name} is missing the CA response serial annotation" >&2
+    exit 1
+  fi
+  if [[ "$annotated_serial" != "$certificate_serial_number" ]]; then
+    echo "Certificate ${certificate_name} CA response serial ${annotated_serial} does not match leaf serial ${certificate_serial_number}" >&2
+    exit 1
+  fi
+  printf '%s\n' "$annotated_serial"
+}
+
+assert_certificate_request_id_annotation() {
+  local certificate_name="$1"
+  local certificate_id
+  local certificate_request_name
+
+  for _ in $(seq 1 30); do
+    certificate_request_name="$("$kubectl_bin" get certificaterequest -n "$namespace" \
+      -o "go-template={{ range .items }}{{ if eq (index .metadata.annotations \"cert-manager.io/certificate-name\") \"${certificate_name}\" }}{{ .metadata.name }}{{ end }}{{ end }}")"
+    certificate_id="$("$kubectl_bin" get certificaterequest "$certificate_request_name" -n "$namespace" \
+      -o jsonpath='{.metadata.annotations.issuer\.digicert\.com/certificate-id}' 2>/dev/null || true)"
+    if [[ -n "$certificate_id" ]]; then
+      return
+    fi
+    sleep 1
+  done
+
+  echo "CertificateRequest for ${certificate_name} is missing the CA certificate ID annotation" >&2
+  exit 1
 }
 
 apply_certificate() {
@@ -136,6 +177,8 @@ apply_certificate cluster-issuer cluster-issuer-tls DigiCertClusterIssuer "$clus
 wait_for_certificate cluster-issuer
 "$kubectl_bin" get secret cluster-issuer-tls -n "$namespace" \
   -o jsonpath='{.data.tls\.crt}{.data.tls\.key}' | grep -q .
+first_ca_serial="$(assert_certificate_serial_annotation cluster-issuer cluster-issuer-tls)"
+assert_certificate_request_id_annotation cluster-issuer
 
 echo "Matrix: namespaced DigiCertIssuer issuance"
 "$kubectl_bin" wait --for=condition=Ready digicertissuer/matrix-issuer -n "$namespace" --timeout="$timeout"
@@ -143,6 +186,8 @@ apply_certificate namespaced-issuer namespaced-issuer-tls DigiCertIssuer matrix-
 wait_for_certificate namespaced-issuer
 "$kubectl_bin" get secret namespaced-issuer-tls -n "$namespace" \
   -o jsonpath='{.data.tls\.crt}{.data.tls\.key}' | grep -q .
+assert_certificate_serial_annotation namespaced-issuer namespaced-issuer-tls >/dev/null
+assert_certificate_request_id_annotation namespaced-issuer
 
 echo "Matrix: reissuance after output Secret deletion"
 first_serial="$(certificate_serial cluster-issuer-tls)"
@@ -155,6 +200,12 @@ if [[ "$first_serial" == "$second_serial" ]]; then
   echo "Expected reissuance to replace the certificate serial number" >&2
   exit 1
 fi
+second_ca_serial="$(assert_certificate_serial_annotation cluster-issuer cluster-issuer-tls)"
+if [[ "$first_ca_serial" == "$second_ca_serial" ]]; then
+  echo "Expected reissuance to replace the CA response serial number" >&2
+  exit 1
+fi
+assert_certificate_request_id_annotation cluster-issuer
 
 echo "Matrix: invalid credentials fail without disrupting the controller"
 "$kubectl_bin" create secret generic invalid-credentials -n "$namespace" \
@@ -185,9 +236,9 @@ echo "Matrix: credential rotation is used without restarting the controller"
 "$kubectl_bin" delete secret invalid-credentials -n "$namespace"
 "$kubectl_bin" create secret generic invalid-credentials -n "$namespace" \
   "--from-file=${credential_key}=${credential_file}"
-"$kubectl_bin" delete certificate credential-rotation -n "$namespace"
-apply_certificate credential-rotation credential-rotation-tls DigiCertIssuer rotating-issuer
 wait_for_certificate credential-rotation
+assert_certificate_serial_annotation credential-rotation credential-rotation-tls >/dev/null
+assert_certificate_request_id_annotation credential-rotation
 
 echo "Matrix: controller remains available after issuance"
 "$kubectl_bin" rollout status "deployment/${manager_deployment}" -n "$manager_namespace" --timeout="$timeout"

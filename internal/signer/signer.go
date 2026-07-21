@@ -34,8 +34,8 @@ package signer
 import (
 	"context"
 	"fmt"
+	"sync"
 
-	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	issuerv1alpha1 "github.com/cert-manager/issuer-lib/api/v1alpha1"
 	"github.com/cert-manager/issuer-lib/controllers/signer"
 	corev1 "k8s.io/api/core/v1"
@@ -50,6 +50,9 @@ const (
 	// AnnotationCertificateID is set on a CertificateRequest after signing to
 	// record the UUID assigned by the DigiCert certificate-authority service.
 	AnnotationCertificateID = "issuer.digicert.com/certificate-id"
+	// AnnotationSerialNumber is set on the owning Certificate after signing to
+	// record the serial number returned by the certificate-authority service.
+	AnnotationSerialNumber = "issuer.digicert.com/serial-number"
 )
 
 // +kubebuilder:rbac:groups=issuer.digicert.com,resources=digicertissuers,verbs=get;list;watch;update;patch
@@ -58,6 +61,7 @@ const (
 // +kubebuilder:rbac:groups=issuer.digicert.com,resources=digicertclusterissuers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificaterequests,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificaterequests/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=cert-manager.io,resources=certificates,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
@@ -73,6 +77,12 @@ type DigiCertSigner struct {
 	// ClusterResourceNamespace is the namespace used to resolve Secrets for
 	// DigiCertClusterIssuer resources (default: "cert-manager").
 	ClusterResourceNamespace string
+	issuanceOutcomes         sync.Map
+}
+
+type issuanceOutcome struct {
+	certificateID string
+	serialNumber  string
 }
 
 // Check verifies that the certificate-authority service is reachable and that
@@ -115,33 +125,18 @@ func (s *DigiCertSigner) Sign(
 	if err != nil {
 		return signer.PEMBundle{}, fmt.Errorf("get certificate details: %w", err)
 	}
-	leafPEM, chainPEM, certID, err := ca.IssueCertificate(ctx, details.CSR, spec.IssuerID, spec.AccountID, spec.TemplateID)
+	leafPEM, chainPEM, certID, serialNumber, err := ca.IssueCertificate(ctx, details.CSR, spec.IssuerID, spec.AccountID, spec.TemplateID)
 	if err != nil {
 		return signer.PEMBundle{}, fmt.Errorf("sign certificate: %w", err)
 	}
 
-	// Annotate the CertificateRequest with the CA-assigned certificate ID so
-	// operators can correlate the Kubernetes object with the certificate record
-	// in the DigiCert CA service.
-	// This is best-effort: the certificate was already issued successfully, so
-	// a failure here is logged but does not fail the Sign operation.
-	if certID != "" {
-		crObj := &cmapi.CertificateRequest{}
-		if err := s.Client.Get(ctx, types.NamespacedName{
-			Namespace: cr.GetNamespace(),
-			Name:      cr.GetName(),
-		}, crObj); err == nil {
-			patch := client.MergeFrom(crObj.DeepCopy())
-			if crObj.Annotations == nil {
-				crObj.Annotations = make(map[string]string)
-			}
-			crObj.Annotations[AnnotationCertificateID] = certID
-			if patchErr := s.Client.Patch(ctx, crObj, patch); patchErr != nil {
-				// Non-fatal: the cert was issued successfully; log and continue.
-				_ = fmt.Errorf("patch certificate-id annotation: %w", patchErr)
-			}
-		}
-	}
+	// issuer-lib writes the CertificateRequest Ready condition after Sign
+	// returns. Deferring metadata updates until then prevents this callback from
+	// re-enqueuing an unready request and issuing a second certificate.
+	s.issuanceOutcomes.Store(cr.GetUID(), issuanceOutcome{
+		certificateID: certID,
+		serialNumber:  serialNumber,
+	})
 
 	return signer.PEMBundle{
 		ChainPEM: chainPEM,

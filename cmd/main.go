@@ -319,6 +319,13 @@ func main() {
 		setupLog.Error(err, "Failed to set up CombinedController")
 		os.Exit(1)
 	}
+	if err := (&signer.CertificateMetadataReconciler{
+		Client: mgr.GetClient(),
+		Signer: s,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to set up Certificate metadata reconciler")
+		os.Exit(1)
+	}
 
 	// +kubebuilder:scaffold:builder
 	// ↑ Do not remove — kubebuilder injects SetupWithManager calls here when

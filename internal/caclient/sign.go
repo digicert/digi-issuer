@@ -37,23 +37,24 @@ import (
 // chainPEM contains the full issuing chain (leaf first, root last) as
 // concatenated PEM blocks, suitable for use as the cert-manager PEMBundle.
 // certID is the UUID assigned to the certificate by the CA.
+// serialNumber is the X.509 serial number supplied by the CA.
 func (c *Client) IssueCertificate(
 	ctx context.Context,
 	csrPEM []byte,
 	issuerID string,
 	accountID string,
 	templateID string,
-) (leafPEM []byte, chainPEM []byte, certID string, err error) {
+) (leafPEM []byte, chainPEM []byte, certID string, serialNumber string, err error) {
 	if len(csrPEM) == 0 {
-		return nil, nil, "", fmt.Errorf("CSR must not be empty")
+		return nil, nil, "", "", fmt.Errorf("CSR must not be empty")
 	}
 	if issuerID == "" {
-		return nil, nil, "", fmt.Errorf("issuerID must not be empty")
+		return nil, nil, "", "", fmt.Errorf("issuerID must not be empty")
 	}
 
 	csr, err := parseCSR(csrPEM)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", "", err
 	}
 
 	reqBody := certificateRequest{
@@ -74,11 +75,11 @@ func (c *Client) IssueCertificate(
 		headers["X-DC-AccountId"] = accountID
 	}
 	if err := c.doWithHeaders(ctx, "POST", "/api/v1/certificate", reqBody, headers, &resp); err != nil {
-		return nil, nil, "", fmt.Errorf("issue certificate: %w", err)
+		return nil, nil, "", "", fmt.Errorf("issue certificate: %w", err)
 	}
 
 	if len(resp.Blob) == 0 {
-		return nil, nil, "", fmt.Errorf("issue certificate: response contained empty blob")
+		return nil, nil, "", "", fmt.Errorf("issue certificate: response contained empty blob")
 	}
 
 	// The CA returns the leaf cert as raw DER bytes in the Blob field.
@@ -100,7 +101,7 @@ func (c *Client) IssueCertificate(
 		}
 		derBytes, err := base64.StdEncoding.DecodeString(chainCert.Blob)
 		if err != nil {
-			return nil, nil, "", fmt.Errorf("decode chain cert blob: %w", err)
+			return nil, nil, "", "", fmt.Errorf("decode chain cert blob: %w", err)
 		}
 		certPEM := pem.EncodeToMemory(&pem.Block{
 			Type:  "CERTIFICATE",
@@ -109,7 +110,7 @@ func (c *Client) IssueCertificate(
 		chainPEM = append(chainPEM, certPEM...)
 	}
 
-	return leafPEM, chainPEM, resp.ID, nil
+	return leafPEM, chainPEM, resp.ID, resp.SerialNumber, nil
 }
 
 // parseCSR decodes a PEM-encoded PKCS#10 CSR and returns the parsed structure.
