@@ -22,7 +22,6 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
-	"net"
 )
 
 // IssueCertificate sends the PEM-encoded PKCS#10 CSR to the certificate-authority
@@ -160,7 +159,7 @@ func subjectFromCSR(csr *x509.CertificateRequest) *certSubject {
 func extensionsFromCSR(csr *x509.CertificateRequest) *certExtensions {
 	san := &certSAN{DNSNames: csr.DNSNames}
 	for _, ip := range csr.IPAddresses {
-		san.IPAddresses = append(san.IPAddresses, net.IP(ip).String())
+		san.IPAddresses = append(san.IPAddresses, ip.String())
 	}
 	if len(san.DNSNames) == 0 && len(san.IPAddresses) == 0 {
 		return nil

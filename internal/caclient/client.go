@@ -99,7 +99,7 @@ func New(baseURL string, auth AuthProvider, caBundlePEM []byte) (*Client, error)
 // do performs an HTTP request against the CA service, injecting auth headers
 // and decoding the JSON response body into out (if non-nil).
 // Returns an error for non-2xx status codes.
-func (c *Client) do(ctx context.Context, method, path string, body interface{}, out interface{}) error {
+func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {
 	return c.doWithHeaders(ctx, method, path, body, nil, out)
 }
 
@@ -108,9 +108,9 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 func (c *Client) doWithHeaders(
 	ctx context.Context,
 	method, path string,
-	body interface{},
+	body any,
 	headers map[string]string,
-	out interface{},
+	out any,
 ) error {
 	var bodyReader io.Reader
 	if body != nil {
@@ -145,7 +145,9 @@ func (c *Client) doWithHeaders(
 	if err != nil {
 		return fmt.Errorf("execute request %s %s: %w", method, path, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
