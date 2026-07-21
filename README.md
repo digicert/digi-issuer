@@ -35,7 +35,7 @@ Use the following versions and access before deploying:
 
 - `kubectl` configured for the target cluster, with permission to install CRDs and deploy cluster-scoped RBAC. A cluster administrator is normally required for a first installation.
 - cert-manager `v1.20.2` installed and ready in the target cluster. The controller must be installed after cert-manager's CRDs are available.
-- A reachable DigiCert certificate-authority service, a valid issuing CA ID, and an API key or bearer token authorized to use it.
+- A reachable DigiCert certificate-authority service, valid issuing CA, account, and certificate-template IDs, and an API key or bearer token authorized to use them.
 - The CA's PEM trust bundle when the service is reached through HTTPS. Treat this as required for production.
 - An image registry reachable by the cluster nodes, plus permission for the target namespace to pull the controller image.
 
@@ -119,8 +119,8 @@ spec:
     authSecretName: digicert-issuer-credentials
     authMode: apiKey
     issuerID: <ISSUING_CA_UUID>
-    accountID: <OPTIONAL_ACCOUNT_UUID>
-    templateID: <OPTIONAL_TEMPLATE_UUID>
+    accountID: <ACCOUNT_UUID>
+    templateID: <CERTIFICATE_TEMPLATE_UUID>
     caBundleSecretName: digicert-ca-bundle
 ```
 
@@ -192,7 +192,8 @@ spec:
     authSecretName: digicert-issuer-credentials
     authMode: apiKey
     issuerID: <ISSUING_CA_UUID>
-    templateID: <OPTIONAL_TEMPLATE_UUID>
+    accountID: <ACCOUNT_UUID>
+    templateID: <CERTIFICATE_TEMPLATE_UUID>
     caBundleSecretName: digicert-ca-bundle
 ```
 
@@ -300,8 +301,8 @@ spec:
     authSecretName: digicert-issuer-credentials
     authMode: apiKey
     issuerID: <ISSUING_CA_UUID>
-    accountID: <OPTIONAL_ACCOUNT_UUID>
-    templateID: <OPTIONAL_TEMPLATE_UUID>
+    accountID: <ACCOUNT_UUID>
+    templateID: <CERTIFICATE_TEMPLATE_UUID>
     caBundleSecretName: digicert-ca-bundle
 ```
 
@@ -371,8 +372,8 @@ Both issuer types use the same `spec` fields:
 | `authSecretName` | Yes | Name of the credential Secret. It must contain `api-key` for `apiKey` mode or `token` for `bearer` mode. |
 | `authMode` | No | `apiKey` (default) sends `x-api-key`; `bearer` sends `Authorization: Bearer <token>`. |
 | `issuerID` | Yes | UUID of the issuing CA in the certificate-authority service. |
-| `accountID` | No | Optional account UUID supplied to the CA while issuing. |
-| `templateID` | No | Optional certificate-template UUID supplied to the CA while issuing. |
+| `accountID` | Yes | UUID of the DigiCert account used for issuance. |
+| `templateID` | Yes | UUID of the DigiCert certificate template applied to each issuance request. |
 | `caBundleSecretName` | No | Secret containing the CA PEM bundle at `ca.crt`. Required in practice for verified HTTPS connections. |
 
 ### Build, Run, and Test

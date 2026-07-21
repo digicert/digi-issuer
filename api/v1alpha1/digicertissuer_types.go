@@ -50,15 +50,15 @@ type IssuerSpec struct {
 	// +kubebuilder:validation:Required
 	IssuerID string `json:"issuerID"`
 
-	// AccountID is the optional UUID of the account associated with this
-	// issuer in the certificate-authority service.
-	// +optional
-	AccountID string `json:"accountID,omitempty"`
+	// AccountID is the UUID of the account associated with this issuer in the
+	// certificate-authority service.
+	// +kubebuilder:validation:Required
+	AccountID string `json:"accountID"`
 
-	// TemplateID is the optional UUID of a certificate template to apply when
-	// issuing certificates. If omitted, no template is specified in the request.
-	// +optional
-	TemplateID string `json:"templateID,omitempty"`
+	// TemplateID is the UUID of the certificate template applied when issuing
+	// certificates.
+	// +kubebuilder:validation:Required
+	TemplateID string `json:"templateID"`
 
 	// CABundleSecretName is the optional name of a Secret containing a
 	// PEM-encoded CA bundle (key: "ca.crt") used to verify TLS connections to
