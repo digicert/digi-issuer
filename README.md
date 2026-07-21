@@ -70,7 +70,7 @@ kubectl rollout status deployment/digicert-issuer-controller-manager \
     --namespace digicert-issuer-system --timeout=3m
 ```
 
-`make install` installs the issuer CRDs. `make deploy` applies the controller deployment, RBAC, metrics service, and supporting resources. Both commands use the active kubeconfig context, so confirm the context before running them:
+`make install` applies only the issuer CRDs (from `config/crd`). `make deploy` applies the full Kustomize bundle from `config/default` (including CRDs, RBAC, and the controller deployment). Both commands use the active kubeconfig context, so confirm the context before running them:
 
 ```sh
 kubectl config current-context
