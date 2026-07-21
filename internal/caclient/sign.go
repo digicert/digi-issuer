@@ -50,6 +50,12 @@ func (c *Client) IssueCertificate(
 	if issuerID == "" {
 		return nil, nil, "", "", fmt.Errorf("issuerID must not be empty")
 	}
+	if accountID == "" {
+		return nil, nil, "", "", fmt.Errorf("accountID must not be empty")
+	}
+	if templateID == "" {
+		return nil, nil, "", "", fmt.Errorf("templateID must not be empty")
+	}
 
 	csr, err := parseCSR(csrPEM)
 	if err != nil {
@@ -67,12 +73,9 @@ func (c *Client) IssueCertificate(
 	}
 
 	var resp certificateResponse
-	headers := map[string]string{}
-	if accountID != "" {
-		// Hosted CA authorization resolves the active account from this header
-		// before parsing the request body.
-		headers["X-DC-AccountId"] = accountID
-	}
+	// Hosted CA authorization resolves the active account from this header
+	// before parsing the request body.
+	headers := map[string]string{"X-DC-AccountId": accountID}
 	if err := c.doWithHeaders(ctx, "POST", "/api/v1/certificate", reqBody, headers, &resp); err != nil {
 		return nil, nil, "", "", fmt.Errorf("issue certificate: %w", err)
 	}

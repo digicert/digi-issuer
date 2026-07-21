@@ -46,12 +46,12 @@ type certExtensions struct {
 
 // certificateRequest is the JSON body sent to POST /api/v1/certificate.
 type certificateRequest struct {
-	// TemplateID is an optional certificate template UUID.
-	TemplateID string `json:"template_id,omitempty"`
+	// TemplateID is the certificate template UUID.
+	TemplateID string `json:"template_id"`
 	// Issuer identifies the CA within the certificate-authority service.
 	Issuer certIssuer `json:"issuer"`
-	// AccountID is the optional account UUID associated with the request.
-	AccountID string `json:"account_id,omitempty"`
+	// AccountID is the account UUID associated with the request.
+	AccountID string `json:"account_id"`
 	// CSR is the PEM-encoded PKCS#10 certificate signing request.
 	CSR string `json:"csr"`
 	// CSRType indicates the format of the CSR field: "csr" for a full PKCS#10
