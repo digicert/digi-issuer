@@ -35,8 +35,10 @@ type certSubject struct {
 
 // certSAN holds Subject Alternative Name values extracted from the CSR.
 type certSAN struct {
-	DNSNames    []string `json:"dns_names,omitempty"`
-	IPAddresses []string `json:"ip_addresses,omitempty"`
+	DNSNames       []string `json:"dns_names,omitempty"`
+	IPAddresses    []string `json:"ip_addresses,omitempty"`
+	EmailAddresses []string `json:"email_addresses,omitempty"`
+	URIs           []string `json:"uris,omitempty"`
 }
 
 // certExtensions holds certificate extensions derived from the CSR.

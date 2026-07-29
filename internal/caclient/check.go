@@ -27,7 +27,7 @@ import (
 //
 // issuerID is accepted for interface compatibility but is not currently sent
 // to the health endpoint — the health check is service-wide, not per-CA.
-func (c *Client) CheckIssuer(ctx context.Context, issuerID string) error {
+func (c *Client) CheckIssuer(ctx context.Context, issuerID string) error { //nolint:unparam // issuerID kept for interface compatibility; not yet used by the service-wide health endpoint
 	if err := c.do(ctx, "GET", "/api/v1/health", nil, nil); err != nil {
 		return fmt.Errorf("health check: %w", err)
 	}
