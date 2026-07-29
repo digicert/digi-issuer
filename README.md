@@ -7,31 +7,31 @@ The controller provides two `issuer.digicert.com/v1alpha1` resources:
 - `DigiCertIssuer` is namespaced. It can issue certificates for `Certificate` resources in the same namespace and reads its referenced Secrets from that namespace.
 - `DigiCertClusterIssuer` is cluster-scoped. It can issue certificates from any namespace and reads its referenced Secrets from the controller's cluster-resource namespace, `cert-manager` by default.
 
-For each configured issuer, the controller checks that the DigiCert CA is reachable and that its credentials are valid. A ready issuer handles cert-manager `CertificateRequest` resources, submits their CSRs to the CA, and returns the resulting certificate material to cert-manager. After a successful issuance it also records:
-
-- `issuer.digicert.com/certificate-id` on the `CertificateRequest`, containing the certificate ID returned by the CA.
-- `issuer.digicert.com/serial-number` on the owning `Certificate`, containing the returned leaf certificate serial number.
+For each configured issuer, the controller checks that the DigiCert CA is reachable and that its credentials are valid. A ready issuer handles cert-manager `CertificateRequest` resources, submits their CSRs to the CA, and returns the resulting certificate material to cert-manager. After a successful issuance it also records the outputs described in [Certificate Outputs](#certificate-outputs).
 
 The controller supports API-key authentication (`x-api-key`, the default) and bearer-token authentication. It reads credentials on each check and signing operation, so rotating a referenced Secret takes effect without restarting the controller.
 
-## Guide 1: Production Deployment and Operation
+## Table of Contents
 
-This guide is for cluster operators installing DigiCert Issuer as a cert-manager external issuer. Follow the sections in order: establish the prerequisites, deploy the controller, store credentials and trust material, create an issuer, and validate a real certificate request.
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Issuer Configuration](#issuer-configuration)
+- [Resources](#resources)
+- [Certificate Outputs](#certificate-outputs)
+- [Certificate Management](#certificate-management)
+- [Revoking Certificates and Uninstalling](#revoking-certificates-and-uninstalling)
+- [Security Best Practices](#security-best-practices)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [Distribution](#distribution)
+- [Contributing](#contributing)
+- [License](#license)
 
-### Deployment Model
+## Requirements
 
-The controller runs as one deployment in the `digicert-issuer-system` namespace and watches cert-manager `CertificateRequest` resources across the cluster. It requires cluster-scoped RBAC because a `DigiCertClusterIssuer` may service certificate requests from any namespace.
+### Runtime Requirements
 
-Choose the issuer scope before creating credentials:
-
-- Use `DigiCertClusterIssuer` for centrally managed CA credentials that can issue certificates in multiple namespaces. By default, its credential and CA-bundle Secrets must be in `cert-manager`.
-- Use `DigiCertIssuer` when one team or namespace must own its own CA credentials. Its credential and CA-bundle Secrets must be in the same namespace as the issuer.
-
-The value of the manager's `--cluster-resource-namespace` argument controls where ClusterIssuer Secrets are resolved. The checked-in deployment sets it to `cert-manager`. Change that argument only as part of a deliberate secret-management design, then put all ClusterIssuer Secrets in the replacement namespace.
-
-### Production Prerequisites
-
-Use the following versions and access before deploying:
+Use the following versions and access before deploying to production:
 
 - `kubectl` configured for the target cluster, with permission to install CRDs and deploy cluster-scoped RBAC. A cluster administrator is normally required for a first installation.
 - cert-manager `v1.20.2` installed and ready in the target cluster. The controller must be installed after cert-manager's CRDs are available.
@@ -40,6 +40,17 @@ Use the following versions and access before deploying:
 - An image registry reachable by the cluster nodes, plus permission for the target namespace to pull the controller image.
 
 Do not place API keys, bearer tokens, or private trust bundles in Git. Create Kubernetes Secrets from protected local files or your secret-management workflow. The checked-in files under `config/samples/` are examples only and contain placeholder or environment-specific values.
+
+### Development Requirements
+
+- Go `1.26.5` or later.
+- Docker, or another compatible tool selected with `CONTAINER_TOOL`, for image builds.
+- `kubectl` and [Kind](https://kind.sigs.k8s.io/) for local cluster and E2E work.
+- Access to a non-production DigiCert CA when running the live integration matrix. Do not use production credentials for ordinary development.
+
+The Makefile downloads pinned local build tools into `bin/` when needed. No global `controller-gen`, Kustomize, envtest, or golangci-lint installation is required.
+
+## Installation
 
 ### 1. Install cert-manager
 
@@ -58,6 +69,8 @@ kubectl get pods --namespace cert-manager
 ```
 
 ### 2. Build, Publish, and Deploy the Controller
+
+The controller runs as one deployment in the `digicert-issuer-system` namespace and watches cert-manager `CertificateRequest` resources across the cluster. It requires cluster-scoped RBAC because a `DigiCertClusterIssuer` may service certificate requests from any namespace.
 
 Build and publish an image the cluster nodes can pull. Use an immutable release tag rather than `latest` for a production rollout.
 
@@ -78,7 +91,30 @@ kubectl config current-context
 
 For a private image registry, configure the normal Kubernetes image-pull credentials before deployment. The supplied manager manifest uses `IfNotPresent`; update the manifest or your release overlay to meet your image-pinning and pull-policy requirements.
 
-### 3. Store Credentials and TLS Trust
+## Issuer Configuration
+
+Choose the issuer scope before creating credentials:
+
+- Use `DigiCertClusterIssuer` for centrally managed CA credentials that can issue certificates in multiple namespaces. By default, its credential and CA-bundle Secrets must be in `cert-manager`.
+- Use `DigiCertIssuer` when one team or namespace must own its own CA credentials. Its credential and CA-bundle Secrets must be in the same namespace as the issuer.
+
+The value of the manager's `--cluster-resource-namespace` argument controls where ClusterIssuer Secrets are resolved. The checked-in deployment sets it to `cert-manager`. Change that argument only as part of a deliberate secret-management design, then put all ClusterIssuer Secrets in the replacement namespace.
+
+### Spec Fields
+
+Both issuer types use the same `spec` fields:
+
+| Name | Description | Type | Required |
+| --- | --- | --- | --- |
+| `url` | Base URL of the DigiCert certificate-authority service. | String | Yes |
+| `authSecretName` | Name of the credential Secret. It must contain `api-key` for `apiKey` mode or `token` for `bearer` mode. | String | Yes |
+| `authMode` | `apiKey` (default) sends `x-api-key`; `bearer` sends `Authorization: Bearer <token>`. | String | No |
+| `issuerID` | UUID of the issuing CA in the certificate-authority service. | String | Yes |
+| `accountID` | UUID of the DigiCert account used for issuance. | String | Yes |
+| `templateID` | UUID of the DigiCert certificate template applied to each issuance request. | String | Yes |
+| `caBundleSecretName` | Secret containing the CA PEM bundle at `ca.crt`. Required in practice for verified HTTPS connections. | String | No |
+
+### Storing Credentials and TLS Trust
 
 For a `DigiCertClusterIssuer`, create the credential Secret in `cert-manager`, or in the namespace selected by `--cluster-resource-namespace`. Store the API key in a protected local file rather than in shell history:
 
@@ -105,7 +141,9 @@ kubectl create secret generic digicert-ca-bundle \
 
 Credential and CA-bundle Secret contents are read during issuer checks and signing calls. Updating the referenced Secret therefore takes effect without restarting the manager, but operators should validate a new credential using a controlled certificate request after rotation.
 
-### 4. Create and Validate a ClusterIssuer
+## Resources
+
+### DigiCertClusterIssuer
 
 Create a `DigiCertClusterIssuer` for a centrally managed issuer. Replace every placeholder and retain the CA bundle field for a verified HTTPS connection:
 
@@ -131,53 +169,9 @@ kubectl wait --for=condition=Ready digicertclusterissuer/digicert-production \
 kubectl get digicertclusterissuer digicert-production
 ```
 
-The issuer condition is the first operational health check: it confirms that the controller can reach the DigiCert CA and authenticate. If it does not become ready, inspect the resource status and manager logs:
+The issuer condition is the first operational health check: it confirms that the controller can reach the DigiCert CA and authenticate. If it does not become ready, see [Troubleshooting](#troubleshooting).
 
-```sh
-kubectl describe digicertclusterissuer digicert-production
-kubectl logs deployment/digicert-issuer-controller-manager \
-    --namespace digicert-issuer-system --container manager
-```
-
-### 5. Issue a Certificate Through cert-manager
-
-Use a permitted DNS name and template. cert-manager creates the `CertificateRequest`; this controller sends its CSR to DigiCert and cert-manager writes the returned certificate to the target Secret.
-
-```yaml
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-    name: digicert-test-cert
-    namespace: default
-spec:
-    secretName: digicert-test-cert-tls
-    commonName: test.example.com
-    dnsNames:
-        - test.example.com
-    issuerRef:
-        group: issuer.digicert.com
-        kind: DigiCertClusterIssuer
-        name: digicert-production
-```
-
-```sh
-kubectl apply -f test-certificate.yaml
-kubectl wait --for=condition=Ready certificate/digicert-test-cert \
-    --namespace default --timeout=3m
-kubectl get secret digicert-test-cert-tls --namespace default
-```
-
-Inspect the created `CertificateRequest` for the DigiCert certificate ID and the `Certificate` for the returned leaf serial number:
-
-```sh
-kubectl get certificaterequest --namespace default
-kubectl get certificaterequest <CERTIFICATE_REQUEST_NAME> --namespace default \
-    -o jsonpath='{.metadata.annotations.issuer\.digicert\.com/certificate-id}{"\n"}'
-kubectl get certificate digicert-test-cert --namespace default \
-    -o jsonpath='{.metadata.annotations.issuer\.digicert\.com/serial-number}{"\n"}'
-```
-
-### Namespaced Issuer
+### DigiCertIssuer
 
 Use `DigiCertIssuer` when issuer ownership and CA credentials must be isolated per namespace. Create both Secrets in that namespace, then apply:
 
@@ -206,18 +200,117 @@ issuerRef:
     name: team-a-digicert
 ```
 
-## Guide 2: Development, Implementation, and Contribution
+## Certificate Outputs
 
-This guide is for contributors building, changing, and validating the controller. It uses the same issuer configuration as production, but the local Kind workflow lets contributors test an image before it is pushed to a registry. Values in angle brackets must be replaced with values for a non-production DigiCert CA.
+After a successful issuance, the controller records the following outputs so operators and automation can retrieve CA-side identifiers without querying the DigiCert service directly:
 
-### Developer Prerequisites
+| Name | Written On | Description |
+| --- | --- | --- |
+| `issuer.digicert.com/certificate-id` | `CertificateRequest` | The certificate ID returned by the DigiCert certificate-authority service. |
+| `issuer.digicert.com/serial-number` | Owning `Certificate` | The serial number of the returned leaf certificate. |
 
-- Go `1.26.5` or later.
-- Docker, or another compatible tool selected with `CONTAINER_TOOL`, for image builds.
-- `kubectl` and Kind for local cluster and E2E work.
-- Access to a non-production DigiCert CA when running the live integration matrix. Do not use production credentials for ordinary development.
+Retrieve them with:
 
-The Makefile downloads pinned local build tools into `bin/` when needed. No global `controller-gen`, Kustomize, envtest, or golangci-lint installation is required.
+```sh
+kubectl get certificaterequest <CERTIFICATE_REQUEST_NAME> --namespace default \
+    -o jsonpath='{.metadata.annotations.issuer\.digicert\.com/certificate-id}{"\n"}'
+kubectl get certificate <CERTIFICATE_NAME> --namespace default \
+    -o jsonpath='{.metadata.annotations.issuer\.digicert\.com/serial-number}{"\n"}'
+```
+
+Both annotations are written synchronously as part of certificate issuance, so they are durable across controller restarts and available as soon as the `CertificateRequest`/`Certificate` reach `Ready`.
+
+## Certificate Management
+
+### Issuing a Certificate
+
+Use a permitted DNS name and template. cert-manager creates the `CertificateRequest`; this controller sends its CSR to DigiCert and cert-manager writes the returned certificate to the target Secret.
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+    name: digicert-test-cert
+    namespace: default
+spec:
+    secretName: digicert-test-cert-tls
+    commonName: test.example.com
+    dnsNames:
+        - test.example.com
+    issuerRef:
+        group: issuer.digicert.com
+        kind: DigiCertClusterIssuer
+        name: digicert-production
+```
+
+```sh
+kubectl apply -f test-certificate.yaml
+kubectl wait --for=condition=Ready certificate/digicert-test-cert \
+    --namespace default --timeout=3m
+kubectl get secret digicert-test-cert-tls --namespace default
+```
+
+Inspect the created `CertificateRequest` and the issued `Certificate` for the [Certificate Outputs](#certificate-outputs):
+
+```sh
+kubectl get certificaterequest --namespace default
+```
+
+## Revoking Certificates and Uninstalling
+
+Delete the certificates and issuer resources that depend on the controller before removing it. Deleting CRDs removes all custom resources of those kinds.
+
+```sh
+kubectl delete certificate digicert-test-cert --namespace default --ignore-not-found
+kubectl delete digicertclusterissuer digicert-production --ignore-not-found
+make undeploy
+make uninstall
+```
+
+For the local Kind quick-start environment, remove the Kind cluster after uninstalling:
+
+```sh
+kind delete cluster --name digicert-issuer-dev
+```
+
+> **Note:** This controller does not call a DigiCert revocation API on delete. Deleting a `Certificate` removes the Kubernetes `Secret` and stops renewal, but the certificate itself remains valid at the CA until it expires or is separately revoked through the DigiCert platform.
+
+## Security Best Practices
+
+- **Never commit credentials.** API keys, bearer tokens, and private CA bundles must never be placed in Git. Create Kubernetes Secrets from protected local files or your secret-management workflow; treat everything under `config/samples/` as a placeholder, not a real credential.
+- **Always set `caBundleSecretName` for HTTPS endpoints.** When it is omitted, the controller intentionally skips TLS certificate verification (logged as a warning on every issuer reconcile). Use plain HTTP only on a tightly controlled, private network.
+- **Scope credentials to the issuer they belong to.** Prefer `DigiCertIssuer` (namespaced) when a team must not share its CA credentials with other tenants; use `DigiCertClusterIssuer` only for centrally managed credentials.
+- **Validate after rotation.** Credential and CA-bundle Secrets are read on every check/sign call, so rotation takes effect without a restart — but always validate a rotated credential with a controlled certificate request rather than assuming success.
+- **Least-privilege RBAC.** The shipped `config/rbac/role.yaml` only grants `get`/`list` on Secrets (no `watch`/`create`/`update`/`delete`) and scoped `patch`/`update` on `CertificateRequest`, `Certificate`, and the issuer types. Do not broaden this without a corresponding code change that requires it.
+
+## Troubleshooting
+
+- **Issuer never becomes `Ready`.**
+  Inspect the resource status and manager logs:
+
+  ```sh
+  kubectl describe digicertclusterissuer digicert-production
+  kubectl logs deployment/digicert-issuer-controller-manager \
+      --namespace digicert-issuer-system --container manager
+  ```
+
+  Common causes: an unreachable `url`, an invalid or expired credential in `authSecretName`, or a missing `caBundleSecretName` against an endpoint that requires a private trust anchor.
+
+- **`CertificateRequest` stays pending / never reaches `Ready`.**
+  Confirm the request was approved — cert-manager's built-in approver only auto-approves its own issuer types by default. This repository ships `config/rbac/approve_digicertissuer_role.yaml`, which must be applied (it is included in `make deploy`) so cert-manager's approver controller can approve requests referencing `issuer.digicert.com` issuer types.
+
+- **Certificate issuance fails with an authentication error from the CA.**
+  Verify `authMode` matches the key actually present in `authSecretName` (`api-key` for `apiKey` mode, `token` for `bearer` mode), and that the credential has not expired or been revoked on the DigiCert side.
+
+- **TLS verification warnings in the logs.**
+  `Issuer has no caBundleSecretName configured; TLS certificate verification will be skipped...` means the issuer is running without a trust bundle. This is only appropriate for a tightly controlled, private network — see [Security Best Practices](#security-best-practices).
+
+- **Need more detail.**
+  Increase log verbosity with `--zap-log-level=debug` on the manager Deployment, or re-run the CA integration matrix (see [Development](#development)) against the same issuer to reproduce with full output.
+
+## Development
+
+This section is for contributors building, changing, and validating the controller. It uses the same issuer configuration as production, but the local Kind workflow lets contributors test an image before it is pushed to a registry. Values in angle brackets must be replaced with values for a non-production DigiCert CA.
 
 ### Implementation Map
 
@@ -283,8 +376,6 @@ kubectl create secret generic digicert-ca-bundle \
     --from-file=ca.crt=/path/to/digicert-ca.pem
 ```
 
-> **Security note:** When `caBundleSecretName` is omitted, the current client intentionally skips TLS certificate verification. Use a `caBundleSecretName` for any HTTPS production endpoint. A plain HTTP endpoint should only be used on a tightly controlled, private network.
-
 For bearer-token authentication, create the credential Secret with `--from-file=token=/path/to/token` and set `authMode: bearer` in the issuer manifest instead.
 
 #### 4. Create a ClusterIssuer
@@ -315,13 +406,7 @@ kubectl wait --for=condition=Ready digicertclusterissuer/digicert-production \
 kubectl get digicertclusterissuer digicert-production
 ```
 
-If the issuer does not become ready, inspect its status and the controller logs:
-
-```sh
-kubectl describe digicertclusterissuer digicert-production
-kubectl logs deployment/digicert-issuer-controller-manager \
-    --namespace digicert-issuer-system --container manager
-```
+If the issuer does not become ready, see [Troubleshooting](#troubleshooting).
 
 #### 5. Request and verify a certificate
 
@@ -355,26 +440,7 @@ kubectl get certificate digicert-test-cert --namespace default \
 kubectl get certificaterequest --namespace default
 ```
 
-The final command lists the request created by cert-manager. Inspect it to retrieve the DigiCert certificate ID annotation:
-
-```sh
-kubectl get certificaterequest <CERTIFICATE_REQUEST_NAME> --namespace default \
-    -o jsonpath='{.metadata.annotations.issuer\.digicert\.com/certificate-id}{"\n"}'
-```
-
-### Issuer Configuration Reference
-
-Both issuer types use the same `spec` fields:
-
-| Field | Required | Description |
-| --- | --- | --- |
-| `url` | Yes | Base URL of the DigiCert certificate-authority service. |
-| `authSecretName` | Yes | Name of the credential Secret. It must contain `api-key` for `apiKey` mode or `token` for `bearer` mode. |
-| `authMode` | No | `apiKey` (default) sends `x-api-key`; `bearer` sends `Authorization: Bearer <token>`. |
-| `issuerID` | Yes | UUID of the issuing CA in the certificate-authority service. |
-| `accountID` | Yes | UUID of the DigiCert account used for issuance. |
-| `templateID` | Yes | UUID of the DigiCert certificate template applied to each issuance request. |
-| `caBundleSecretName` | No | Secret containing the CA PEM bundle at `ca.crt`. Required in practice for verified HTTPS connections. |
+The final command lists the request created by cert-manager. Inspect it to retrieve the DigiCert certificate ID annotation (see [Certificate Outputs](#certificate-outputs)).
 
 ### Build, Run, and Test
 
@@ -406,30 +472,7 @@ E2E_MANAGER_NAMESPACE=digicert-issuer-system \
 make test-e2e-kubeconfig
 ```
 
-### Contribution Workflow
-
-1. Keep API changes in `api/v1alpha1/` and reconciliation or CA behavior changes in their owning `internal/` package. Do not edit generated files under `config/crd/bases/`, `config/rbac/role.yaml`, or `zz_generated.deepcopy.go`.
-2. Update or add focused tests with the behavior change. Use `make test` for unit and envtest coverage; use `make test-e2e` for deployment behavior; run `make test-e2e-kubeconfig` only against a dedicated, non-production CA environment.
-3. Run `make build` and `make lint` before requesting review. If types, validation markers, or RBAC markers changed, verify that generated output is included by running `make manifests generate`.
-4. Keep credentials, bearer tokens, and private CA bundles out of source control and test fixtures. Sanitize any externally supplied values before use and never hardcode secrets in manifests or code.
-5. Describe operational impact in the change: new RBAC, CRD changes, configuration migrations, TLS behavior, or required release steps.
-
-## Uninstall
-
-Delete the certificates and issuer resources that depend on the controller before removing it. Deleting CRDs removes all custom resources of those kinds.
-
-```sh
-kubectl delete certificate digicert-test-cert --namespace default --ignore-not-found
-kubectl delete digicertclusterissuer digicert-production --ignore-not-found
-make undeploy
-make uninstall
-```
-
-For the local quick-start environment, remove the Kind cluster after uninstalling:
-
-```sh
-kind delete cluster --name digicert-issuer-dev
-```
+E2E tests are designed to validate the solution in an isolated environment (similar to GitHub Actions CI). Run them against a dedicated [Kind](https://kind.sigs.k8s.io/) cluster, not a "real" dev/prod cluster.
 
 ## Distribution
 
@@ -440,6 +483,16 @@ make build-installer IMG=<REGISTRY>/digicert-issuer:<TAG>
 ```
 
 This creates `dist/install.yaml`, which contains the CRDs, RBAC, and controller deployment. cert-manager and DigiCert credential/issuer resources remain external prerequisites and must be installed or created separately.
+
+## Contributing
+
+1. Keep API changes in `api/v1alpha1/` and reconciliation or CA behavior changes in their owning `internal/` package. Do not edit generated files under `config/crd/bases/`, `config/rbac/role.yaml`, or `zz_generated.deepcopy.go`.
+2. Update or add focused tests with the behavior change. Use `make test` for unit and envtest coverage; use `make test-e2e` for deployment behavior; run `make test-e2e-kubeconfig` only against a dedicated, non-production CA environment.
+3. Run `make build` and `make lint` before requesting review. If types, validation markers, or RBAC markers changed, verify that generated output is included by running `make manifests generate`.
+4. Keep credentials, bearer tokens, and private CA bundles out of source control and test fixtures. Sanitize any externally supplied values before use and never hardcode secrets in manifests or code.
+5. Describe operational impact in the change: new RBAC, CRD changes, configuration migrations, TLS behavior, or required release steps.
+
+See [Development](#development) for the full local build and test workflow.
 
 ## License
 
@@ -456,4 +509,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
