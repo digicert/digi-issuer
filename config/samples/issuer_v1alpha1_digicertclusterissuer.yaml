@@ -6,7 +6,7 @@ spec:
   url: http://ambassador-dcone.dcone/certificate-authority
   authSecretName: digicert-issuer-credentials
   authMode: apiKey
-  issuerID: "DDCA90D5FF6BF9889773C9F4CF08C270"
-  accountID: "447295bc-8a7a-41ec-9111-4f0c6f0ce4fc"
-  templateID: "0196198F96545084143B237D9E39FC90"
+  issuerID: "00000000000000000000000000000000"
+  accountID: "000000000000000000000000000000000000"
+  templateID: "00000000000000000000000000000000"
   # caBundleSecretName: digicert-ca-bundle               # optional

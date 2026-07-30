@@ -28,3 +28,5 @@ go.work
 
 # Kubeconfig might contain secrets
 *.kubeconfig
+
+config/samples/issuer_v1alpha1_digicertclusterissuer.actual.yaml
