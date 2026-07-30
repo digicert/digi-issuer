@@ -34,13 +34,15 @@ package signer
 import (
 	"context"
 	"fmt"
-	"sync"
 
+	cmapi "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	issuerv1alpha1 "github.com/cert-manager/issuer-lib/api/v1alpha1"
 	"github.com/cert-manager/issuer-lib/controllers/signer"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	apiv1alpha1 "digicert-issuer/api/v1alpha1"
 	"digicert-issuer/internal/caclient"
@@ -77,12 +79,6 @@ type DigiCertSigner struct {
 	// ClusterResourceNamespace is the namespace used to resolve Secrets for
 	// DigiCertClusterIssuer resources (default: "cert-manager").
 	ClusterResourceNamespace string
-	issuanceOutcomes         sync.Map
-}
-
-type issuanceOutcome struct {
-	certificateID string
-	serialNumber  string
 }
 
 // Check verifies that the certificate-authority service is reachable and that
@@ -130,18 +126,120 @@ func (s *DigiCertSigner) Sign(
 		return signer.PEMBundle{}, fmt.Errorf("sign certificate: %w", err)
 	}
 
-	// issuer-lib writes the CertificateRequest Ready condition after Sign
-	// returns. Deferring metadata updates until then prevents this callback from
-	// re-enqueuing an unready request and issuing a second certificate.
-	s.issuanceOutcomes.Store(cr.GetUID(), issuanceOutcome{
-		certificateID: certID,
-		serialNumber:  serialNumber,
-	})
+	// Persist the CA-assigned certificate ID / serial number as annotations
+	// immediately, rather than caching them in memory for a later watch-driven
+	// reconciler to pick up. This makes the metadata durable across manager
+	// restarts/leader failover: it's written to etcd the moment we have it,
+	// instead of risking silent loss if the process dies before a second
+	// reconcile observes the CertificateRequest's Ready condition.
+	//
+	// This does not race with issuer-lib setting Ready=True: the metadata
+	// patch below bumps the CertificateRequest's resourceVersion, which queues
+	// another reconcile for this object, but controller-runtime's workqueue
+	// never processes two reconciles of the same object concurrently — the
+	// queued reconcile only runs after this call returns, by which point
+	// issuer-lib's RequestController has already applied the Ready status
+	// patch (see cert-manager/issuer-lib's request_controller.go, which calls
+	// Sign() and then unconditionally patches status to Ready before
+	// returning). That re-queued reconcile will see Ready=True and skip
+	// straight past the "already Ready" guard without calling Sign() again.
+	if err := s.annotateIssuanceOutcome(ctx, cr, certID, serialNumber); err != nil {
+		// Best-effort: the certificate itself was issued successfully, so we
+		// log and continue rather than fail Sign() (which would trigger a
+		// retry and a second CA issuance) over a secondary annotation.
+		log.FromContext(ctx).Error(err, "Failed to annotate CertificateRequest/Certificate with CA metadata")
+	}
 
 	return signer.PEMBundle{
 		ChainPEM: chainPEM,
 		CAPEM:    leafPEM,
 	}, nil
+}
+
+// annotateIssuanceOutcome records the CA-assigned certificate ID on the
+// CertificateRequest and the serial number on its owning Certificate (if any).
+// It re-fetches both objects fresh from the API server rather than mutating
+// the CertificateRequestObject passed to Sign, since that interface does not
+// guarantee a patchable client.Object.
+func (s *DigiCertSigner) annotateIssuanceOutcome(
+	ctx context.Context,
+	cr signer.CertificateRequestObject,
+	certID, serialNumber string,
+) error {
+	if certID == "" && serialNumber == "" {
+		return nil
+	}
+
+	certificateRequest := &cmapi.CertificateRequest{}
+	if err := s.Client.Get(ctx, types.NamespacedName{
+		Namespace: cr.GetNamespace(),
+		Name:      cr.GetName(),
+	}, certificateRequest); err != nil {
+		return fmt.Errorf("get CertificateRequest: %w", err)
+	}
+
+	if certID != "" {
+		if err := setAnnotation(ctx, s.Client, certificateRequest, AnnotationCertificateID, certID); err != nil {
+			return fmt.Errorf("annotate CertificateRequest: %w", err)
+		}
+	}
+	if serialNumber == "" {
+		return nil
+	}
+
+	owner := certificateOwnerReference(certificateRequest.OwnerReferences)
+	if owner == nil {
+		log.FromContext(ctx).V(1).Info("CertificateRequest has no owning Certificate reference; "+
+			"skipping serial-number annotation", "certificateRequest", certificateRequest.Name)
+		return nil
+	}
+	certificate := &cmapi.Certificate{}
+	if err := s.Client.Get(ctx, types.NamespacedName{
+		Namespace: certificateRequest.Namespace,
+		Name:      owner.Name,
+	}, certificate); err != nil {
+		return fmt.Errorf("get owning Certificate: %w", err)
+	}
+	if certificate.UID != owner.UID {
+		log.FromContext(ctx).V(1).Info("Owning Certificate UID does not match owner reference; "+
+			"skipping serial-number annotation", "certificateRequest", certificateRequest.Name,
+			"certificate", owner.Name)
+		return nil
+	}
+	if err := setAnnotation(ctx, s.Client, certificate, AnnotationSerialNumber, serialNumber); err != nil {
+		return fmt.Errorf("annotate Certificate: %w", err)
+	}
+	return nil
+}
+
+// setAnnotation patches a single annotation on object, no-op if already set.
+// No retry.RetryOnConflict is used: this merge patch only adds a single,
+// idempotent key and is not a read-modify-write against other fields, so
+// concurrent writers cannot conflict on this specific change (a stale Patch
+// base only affects unrelated fields, which MergeFrom preserves).
+func setAnnotation(ctx context.Context, kubeClient client.Client, object client.Object, key, value string) error {
+	if object.GetAnnotations()[key] == value {
+		return nil
+	}
+	patch := client.MergeFrom(object.DeepCopyObject().(client.Object))
+	annotations := object.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations[key] = value
+	object.SetAnnotations(annotations)
+	return kubeClient.Patch(ctx, object, patch)
+}
+
+// certificateOwnerReference returns the owning Certificate's owner reference,
+// or nil if the CertificateRequest has none.
+func certificateOwnerReference(owners []metav1.OwnerReference) *metav1.OwnerReference {
+	for _, owner := range owners {
+		if owner.APIVersion == cmapi.SchemeGroupVersion.String() && owner.Kind == "Certificate" {
+			return &owner
+		}
+	}
+	return nil
 }
 
 // issuerSpecFrom extracts the IssuerSpec from either a DigiCertIssuer or
@@ -194,6 +292,14 @@ func (s *DigiCertSigner) buildClient(
 		if len(caBundlePEM) == 0 {
 			return nil, fmt.Errorf("CA bundle secret %q missing key \"ca.crt\"", spec.CABundleSecretName)
 		}
+	} else {
+		// No CA bundle configured means caclient.New will disable TLS
+		// verification (InsecureSkipVerify) for this issuer. Surface this
+		// silent, security-relevant default so operators have visibility
+		// into it without needing to read the code.
+		log.FromContext(ctx).Info("Issuer has no caBundleSecretName configured; "+
+			"TLS certificate verification will be skipped when contacting the certificate-authority service",
+			"url", spec.URL)
 	}
 
 	return caclient.New(spec.URL, auth, caBundlePEM)
@@ -222,11 +328,17 @@ func (s *DigiCertSigner) buildAuthProvider(
 		}
 		return &caclient.BearerAuth{Token: string(token)}, nil
 
-	default: // apiKey
+	case "apiKey":
 		apiKey, ok := secret.Data["api-key"]
 		if !ok || len(apiKey) == 0 {
 			return nil, fmt.Errorf("auth secret %q missing key \"api-key\"", spec.AuthSecretName)
 		}
 		return &caclient.APIKeyAuth{APIKey: string(apiKey)}, nil
+
+	default:
+		// The CRD marker (+kubebuilder:validation:Enum=apiKey;bearer) should
+		// prevent this today, but fail loudly rather than silently misrouting
+		// to apiKey if the enum is ever extended (e.g. a future mTLS mode).
+		return nil, fmt.Errorf("unsupported auth mode %q", spec.AuthMode)
 	}
 }

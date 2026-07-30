@@ -61,6 +61,12 @@ func (c *Client) IssueCertificate(
 	if err != nil {
 		return nil, nil, "", "", err
 	}
+	// Verify proof-of-possession of the private key before trusting any
+	// subject/SAN fields extracted from the CSR and forwarding them to the CA
+	// as separate, authoritative JSON fields alongside the raw CSR PEM.
+	if err := csr.CheckSignature(); err != nil {
+		return nil, nil, "", "", fmt.Errorf("CSR signature verification failed: %w", err)
+	}
 
 	reqBody := certificateRequest{
 		TemplateID: templateID,
@@ -151,7 +157,9 @@ func subjectFromCSR(csr *x509.CertificateRequest) *certSubject {
 	if len(csr.Subject.PostalCode) > 0 {
 		s.PostalCode = csr.Subject.PostalCode[0]
 	}
-	if s.CommonName == "" && s.OrganizationName == "" && len(s.OrganizationUnit) == 0 {
+	if s.CommonName == "" && s.OrganizationName == "" && len(s.OrganizationUnit) == 0 &&
+		s.Locality == "" && s.State == "" && s.Country == "" &&
+		len(s.StreetAddress) == 0 && s.PostalCode == "" {
 		return nil
 	}
 	return s
@@ -160,11 +168,18 @@ func subjectFromCSR(csr *x509.CertificateRequest) *certSubject {
 // extensionsFromCSR extracts SANs from a parsed CSR.
 // Returns nil if no SANs are present.
 func extensionsFromCSR(csr *x509.CertificateRequest) *certExtensions {
-	san := &certSAN{DNSNames: csr.DNSNames}
+	san := &certSAN{
+		DNSNames:       csr.DNSNames,
+		EmailAddresses: csr.EmailAddresses,
+	}
 	for _, ip := range csr.IPAddresses {
 		san.IPAddresses = append(san.IPAddresses, ip.String())
 	}
-	if len(san.DNSNames) == 0 && len(san.IPAddresses) == 0 {
+	for _, uri := range csr.URIs {
+		san.URIs = append(san.URIs, uri.String())
+	}
+	if len(san.DNSNames) == 0 && len(san.IPAddresses) == 0 &&
+		len(san.EmailAddresses) == 0 && len(san.URIs) == 0 {
 		return nil
 	}
 	return &certExtensions{SAN: san}
