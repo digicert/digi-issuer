@@ -278,10 +278,10 @@ kind delete cluster --name digicert-issuer-dev
 ## Security Best Practices
 
 - **Never commit credentials.** API keys, bearer tokens, and private CA bundles must never be placed in Git. Create Kubernetes Secrets from protected local files or your secret-management workflow; treat everything under `config/samples/` as a placeholder, not a real credential.
-- **Always set `caBundleSecretName` for HTTPS endpoints.** When it is omitted, the controller intentionally skips TLS certificate verification (logged as a warning on every issuer reconcile). Use plain HTTP only on a tightly controlled, private network.
+- **Always set `caBundleSecretName` for HTTPS endpoints.** When it is omitted, the controller intentionally skips TLS certificate verification and logs that condition on every issuer reconcile. Use plain HTTP only on a tightly controlled, private network.
 - **Scope credentials to the issuer they belong to.** Prefer `DigiCertIssuer` (namespaced) when a team must not share its CA credentials with other tenants; use `DigiCertClusterIssuer` only for centrally managed credentials.
 - **Validate after rotation.** Credential and CA-bundle Secrets are read on every check/sign call, so rotation takes effect without a restart — but always validate a rotated credential with a controlled certificate request rather than assuming success.
-- **Least-privilege RBAC.** The shipped `config/rbac/role.yaml` only grants `get`/`list` on Secrets (no `watch`/`create`/`update`/`delete`) and scoped `patch`/`update` on `CertificateRequest`, `Certificate`, and the issuer types. Do not broaden this without a corresponding code change that requires it.
+- **Least-privilege RBAC.** The shipped `config/rbac/role.yaml` only grants `get`/`list` on Secrets (no `watch`/`create`/`update`/`delete`) and `get`/`list`/`watch` plus scoped `patch`/`update` on `CertificateRequest`, `Certificate`, and the issuer types. Do not broaden this without a corresponding code change that requires it.
 
 ## Troubleshooting
 

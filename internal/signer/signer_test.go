@@ -162,6 +162,12 @@ func TestBuildAuthProvider(t *testing.T) {
 			wantValue:  "k3y",
 		},
 		{
+			name:       "empty auth mode defaults to apiKey",
+			secretData: map[string][]byte{"api-key": []byte("k3y")},
+			wantHeader: "x-api-key",
+			wantValue:  "k3y",
+		},
+		{
 			name:       "apiKey missing api-key",
 			authMode:   "apiKey",
 			secretData: map[string][]byte{"other": []byte("x")},

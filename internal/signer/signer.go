@@ -234,9 +234,9 @@ func setAnnotation(ctx context.Context, kubeClient client.Client, object client.
 // certificateOwnerReference returns the owning Certificate's owner reference,
 // or nil if the CertificateRequest has none.
 func certificateOwnerReference(owners []metav1.OwnerReference) *metav1.OwnerReference {
-	for _, owner := range owners {
-		if owner.APIVersion == cmapi.SchemeGroupVersion.String() && owner.Kind == "Certificate" {
-			return &owner
+	for index := range owners {
+		if owners[index].APIVersion == cmapi.SchemeGroupVersion.String() && owners[index].Kind == "Certificate" {
+			return &owners[index]
 		}
 	}
 	return nil
@@ -328,7 +328,7 @@ func (s *DigiCertSigner) buildAuthProvider(
 		}
 		return &caclient.BearerAuth{Token: string(token)}, nil
 
-	case "apiKey":
+	case "", "apiKey":
 		apiKey, ok := secret.Data["api-key"]
 		if !ok || len(apiKey) == 0 {
 			return nil, fmt.Errorf("auth secret %q missing key \"api-key\"", spec.AuthSecretName)

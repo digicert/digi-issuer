@@ -2,6 +2,8 @@ package caclient
 
 import (
 	"context"
+	"crypto/x509"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -34,5 +36,27 @@ func TestIssueCertificateRequiresAccountAndTemplateIDs(t *testing.T) {
 				t.Fatalf("IssueCertificate() error = %v, want error containing %q", err, test.wantError)
 			}
 		})
+	}
+}
+
+func TestExtensionsFromCSRIncludesEmailAndURISANs(t *testing.T) {
+	uri, err := url.Parse("spiffe://example.test/workload/api")
+	if err != nil {
+		t.Fatalf("parse URI: %v", err)
+	}
+
+	extensions := extensionsFromCSR(&x509.CertificateRequest{
+		EmailAddresses: []string{"service@example.test"},
+		URIs:           []*url.URL{uri},
+	})
+
+	if extensions == nil || extensions.SAN == nil {
+		t.Fatal("extensionsFromCSR() = nil, want SAN extensions")
+	}
+	if got := extensions.SAN.EmailAddresses; len(got) != 1 || got[0] != "service@example.test" {
+		t.Errorf("email_addresses = %v, want [service@example.test]", got)
+	}
+	if got := extensions.SAN.URIs; len(got) != 1 || got[0] != "spiffe://example.test/workload/api" {
+		t.Errorf("uris = %v, want [spiffe://example.test/workload/api]", got)
 	}
 }
