@@ -28,6 +28,6 @@ jobs:
           persist-credentials: false
 
       - name: "Run FOSSA Scan"
-        uses: fossa-contrib/fossa-action@ba681392537bba019eae621dbbe95c89edc32a22 # v1.1.4
+        uses: fossa-contrib/fossa-action@d28f0c947e7406706981a62a91ecc009bcc39fd7 # v4.0.0
         with:
           fossa-api-key: ${{ secrets.FOSSA_API_KEY }}
