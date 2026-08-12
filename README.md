@@ -494,6 +494,8 @@ This creates `dist/install.yaml`, which contains the CRDs, RBAC, and controller 
 
 See [Development](#development) for the full local build and test workflow.
 
+By contributing to this project, you represent and warrant that you are the author of the contribution, or have the necessary rights and permissions to make the contribution on behalf of yourself or your organization.
+
 ## License
 
 Copyright 2026.
@@ -509,3 +511,5 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+See the [LICENSE](LICENSE) file for the full terms.

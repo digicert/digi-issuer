@@ -7,6 +7,6 @@ spec:
   authSecretName: digicert-issuer-credentials
   authMode: apiKey
   issuerID: "00000000000000000000000000000000"
-  accountID: "000000000000000000000000000000000000"
+  accountID: "00000000-0000-0000-0000-000000000000"
   templateID: "00000000000000000000000000000000"
   # caBundleSecretName: digicert-ca-bundle               # optional
