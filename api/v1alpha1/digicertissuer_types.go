@@ -53,6 +53,7 @@ type IssuerSpec struct {
 	// AccountID is the UUID of the account associated with this issuer in the
 	// certificate-authority service.
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern="^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 	AccountID string `json:"accountID"`
 
 	// TemplateID is the UUID of the certificate template applied when issuing
